@@ -1,11 +1,18 @@
-# Derived from the repository, never a source of truth: derive the dashboard's
-# tables from the Parquet files under runs/ (tools/marts.py) and publish site/ to
-# GitHub Pages when the repository variable PAGES_ENABLED is "true".
+# Derived, never a source of truth: derive the dashboard's tables from the Parquet
+# files under runs/ (tools/marts.py) and publish site/ to GitHub Pages when the
+# repository variable PAGES_ENABLED is "true". runs/ is what nodes pushed to this
+# repository plus, when the variable BENCH_BUCKET is set, what ephemeral machines
+# left in the bucket (the bench workflow), finished or not: tools/compact.py first
+# turns the bucket's raw/ uploads of the last days into Parquet under its runs/.
+# Runs of this workflow are serialized, so only one compaction writes at a time.
 name: publish
 on:
   push:
     branches: [main]
     paths: ["runs/**", "tools/**", "site/**", "project.json", ".github/workflows/publish.yml"]
+  workflow_run:
+    workflows: [bench]
+    types: [completed]
   workflow_dispatch:
 concurrency:
   group: publish
@@ -24,7 +31,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -q -r tools/requirements.txt
+      - run: pip install -q -r tools/requirements.txt -r ec2/requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: vars.BENCH_BUCKET != ''
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: compact the uploads of ephemeral machines
+        if: vars.BENCH_BUCKET != ''
+        run: python tools/compact.py --raw-url "s3://${{ vars.BENCH_BUCKET }}/raw" --runs-url "s3://${{ vars.BENCH_BUCKET }}/runs" >> "$GITHUB_STEP_SUMMARY"
+      - name: fetch the runs of ephemeral machines
+        if: vars.BENCH_BUCKET != ''
+        run: aws s3 sync --only-show-errors "s3://${{ vars.BENCH_BUCKET }}/runs" runs --exclude '*' --include '*/run.parquet' --include '*/results.parquet'
       - name: test the derived tables and views
         run: python -m pytest -q tools
       - name: derive
