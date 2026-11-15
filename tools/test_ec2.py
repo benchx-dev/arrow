@@ -1,4 +1,4 @@
-"""The ephemeral-machine pieces: the raw store, the derived status, the compaction, the scheduler's plan."""
+"""The ephemeral-machine pieces: the raw store, the derived status, the compaction, the scheduler's plan, the comment command."""
 
 import json
 import shutil
@@ -8,6 +8,7 @@ import tarfile
 import pyarrow.parquet as pq
 import pytest
 
+import command
 import compact
 import remote
 import run_state
@@ -169,3 +170,24 @@ def test_a_filtered_attempt_leaves_the_pair_partial(tmp_path):
     status = m.status()
     assert status["state"] == "partial" and not run_state.complete(status) and run_state.wants_attempt(status, 2)
     assert run_state.todo(status) == ["b", "c"] and run_state.todo(status, ["a"]) == []
+
+
+def test_a_comment_is_parsed_into_a_request():
+    machines = {"big": {"enabled": False}, "small": {"enabled": True}}
+    parse = lambda body: command.parse(body, machines)  # noqa: E731
+    assert parse("thanks, @github-actions bench abc") == (None, None)          # not at the start of a line
+    assert parse("> @github-actions bench abc") == (None, None)                # a quoted command
+    assert parse("@github-actions benchmarks abc") == (None, None)
+    assert parse("please:\r\n@github-actions bench abc1234\r\nthanks")[0] == {
+        "commit": "abc1234", "machine": "small", "suite_filter": ".", "budget_minutes": "240"}
+    assert parse("@github-actions benchmark main machine=big filter=bit-util|csv budget=30")[0] == {
+        "commit": "main", "machine": "big", "suite_filter": "bit-util|csv", "budget_minutes": "30"}
+    for body, problem in (("@github-actions bench", "which commit"), ("@github-actions bench filter=x", "which commit"),
+                          ("@github-actions bench a..b", "does not look like a commit"),
+                          ("@github-actions bench $(id)", "does not look like a commit"),
+                          ("@github-actions bench abc machine=huge", "is not a machine"),
+                          ("@github-actions bench abc budget=0", "budget is"), ("@github-actions bench abc budget=361", "budget is"),
+                          ("@github-actions bench abc budget=1e3", "budget is"), ("@github-actions bench abc verbose", "is not an option"),
+                          ("@github-actions bench abc sha=def", "is not an option"), ("@github-actions bench abc filter=", "is not an option")):
+        request, said = parse(body)
+        assert request is None and problem in said, body
