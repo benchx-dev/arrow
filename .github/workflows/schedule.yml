@@ -1,0 +1,51 @@
+# Decide what to measure next: the newest commits on the upstream branch that a
+# machine has not finished and has attempts left for (tools/schedule.py lists what
+# each pair left in the bucket's raw/), and dispatch the bench workflow for them.
+# Also terminates benchmark instances that outlived any plausible run.
+#
+# The timer only acts when the repository variable SCHEDULE_ENABLED is "true"; a
+# manual run always does. In a private repository every timed run costs a billed
+# minute, hence hourly.
+name: schedule
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only print what would be dispatched
+        type: boolean
+        default: false
+concurrency:
+  group: schedule
+  cancel-in-progress: false
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+jobs:
+  schedule:
+    if: github.event_name == 'workflow_dispatch' || vars.SCHEDULE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - run: pip install -q -r ec2/requirements.txt
+      - name: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAW_URL: s3://${{ vars.BENCH_BUCKET }}/raw
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python tools/schedule.py --raw-url "$RAW_URL" --repo "$GITHUB_REPOSITORY" $DRY_RUN >> "$GITHUB_STEP_SUMMARY"
+      # Also when the dispatch failed: this is the net under a stop job that did not run.
+      - name: terminate instances older than eight hours
+        if: always()
+        run: |
+          cutoff=$(date -u -d '8 hours ago' +%FT%TZ)
+          ids=$(aws ec2 describe-instances \
+            --filters Name=tag:project,Values=benchx-arrow Name=instance-state-name,Values=running,stopped \
+            --query "Reservations[].Instances[?LaunchTime<'$cutoff'].InstanceId" --output text)
+          if [[ -n $ids ]]; then echo "terminating: $ids"; aws ec2 terminate-instances --instance-ids $ids >/dev/null; fi

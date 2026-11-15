@@ -58,9 +58,11 @@ CMAKE_FLAGS=(
   -DARROW_WITH_SNAPPY=ON
   -DARROW_WITH_ZLIB=ON
   -DARROW_WITH_ZSTD=ON
-  -DARROW_DEPENDENCY_SOURCE=AUTO
+  -DARROW_DEPENDENCY_SOURCE=${ARROW_DEPENDENCY_SOURCE:-AUTO}
 )
-if command -v ccache >/dev/null; then
+# With SCCACHE_BUCKET set, Arrow's CMake takes sccache as the launcher by itself
+# (ARROW_USE_SCCACHE); a ccache launcher set here would win over it.
+if [[ -z ${SCCACHE_BUCKET:-} ]] && command -v ccache >/dev/null; then
   CMAKE_FLAGS+=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
 fi
 

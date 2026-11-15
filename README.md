@@ -67,6 +67,12 @@ node/check-node.sh           preflight for a node: tools, upstream, push access,
 node/install-units.sh        install the systemd units for this checkout (--enable starts the timer)
 node/node.env.example        the node's settings; copy to node/node.env
 node/benchx-arrow.{service,timer}   systemd user units for the tick (templates; see install-units.sh)
+ec2/                         measuring on ephemeral EC2 instances from GitHub Actions (see ec2/README.md)
+tools/remote.py              a bucket, or a directory standing in for one: get, put, list
+tools/run_state.py           what a machine uploads for a commit, and the status derived from it
+tools/compact.py             those uploads as the Parquet files under runs/
+tools/schedule.py            which commits to dispatch next
+tools/test_ec2.py            the restart logic, the compaction, the scheduler's plan
 queue/                       requests (empty files named after commits)
 runs/                        the results, as Parquet (see runs/README.md)
 tools/file_run.py            a tick's commit, status and log as run.parquet (on the node)

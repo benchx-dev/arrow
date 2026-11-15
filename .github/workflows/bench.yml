@@ -1,0 +1,136 @@
+# One attempt at one Arrow commit on one machine: start an EC2 instance as a
+# one-job runner, set the environment up from nothing, build with sccache, measure
+# (ec2/bench-run.sh uploads each benchmark binary's results to the bucket's raw/
+# as soon as it has them), terminate. The publish workflow, which runs when this
+# one ends, compacts raw/ into Parquet.
+#
+# Repository variables: AWS_REGION, AWS_ROLE_ARN (assumed through OIDC: may launch
+# and terminate the instances, read the bucket and write its runs/), BENCH_BUCKET, EC2_AMI_X86_64,
+# EC2_AMI_AARCH64 (stock Ubuntu images), EC2_SUBNET_ID, EC2_SECURITY_GROUP_ID,
+# EC2_INSTANCE_ROLE (the instance's own role: the bucket's raw/ and sccache/).
+# Secret: GH_RUNNER_TOKEN, a token that may register runners in this repository.
+name: bench
+run-name: bench ${{ inputs.sha }} ${{ inputs.machine }}
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: The Arrow commit to measure
+        required: true
+      machine:
+        description: A machine name from ec2/machines.json
+        default: amd64-c6a-4xlarge-linux
+      suite_filter:
+        description: A regex over benchmark binaries; "." is all of them
+        default: "."
+      budget_minutes:
+        description: Start no new benchmark binary after this many minutes
+        default: "240"
+# A second attempt at the same commit and machine waits for the first.
+concurrency:
+  group: bench-${{ inputs.sha }}-${{ inputs.machine }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.runner.outputs.label }}
+      instance: ${{ steps.runner.outputs.ec2-instance-id }}
+      arch: ${{ steps.machine.outputs.arch }}
+      timeout: ${{ steps.machine.outputs.timeout }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: machine
+        env:
+          MACHINE: ${{ inputs.machine }}
+          AMI_X86_64: ${{ vars.EC2_AMI_X86_64 }}
+          AMI_AARCH64: ${{ vars.EC2_AMI_AARCH64 }}
+          BUDGET: ${{ inputs.budget_minutes }}
+        run: |
+          [[ $BUDGET =~ ^[0-9]+$ ]] || { echo "budget_minutes must be a number"; exit 1; }
+          jq -e --arg m "$MACHINE" '.[$m]' ec2/machines.json >/dev/null || { echo "unknown machine $MACHINE"; exit 1; }
+          arch=$(jq -r --arg m "$MACHINE" '.[$m].arch' ec2/machines.json)
+          ami=$AMI_X86_64; [[ $arch == aarch64 ]] && ami=$AMI_AARCH64
+          {
+            echo "arch=$arch"
+            echo "timeout=$((BUDGET + 90))"
+            echo "ami=$ami"
+            echo "type=$(jq -r --arg m "$MACHINE" '.[$m].instance_type' ec2/machines.json)"
+            echo "volume=$(jq -r --arg m "$MACHINE" '.[$m].volume_gb' ec2/machines.json)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: runner
+        uses: machulav/ec2-github-runner@v2.6.1
+        with:
+          mode: start
+          github-token: ${{ secrets.GH_RUNNER_TOKEN }}
+          ec2-image-id: ${{ steps.machine.outputs.ami }}
+          ec2-instance-type: ${{ steps.machine.outputs.type }}
+          ec2-volume-size: ${{ steps.machine.outputs.volume }}
+          subnet-id: ${{ vars.EC2_SUBNET_ID }}
+          security-group-id: ${{ vars.EC2_SECURITY_GROUP_ID }}
+          iam-role-name: ${{ vars.EC2_INSTANCE_ROLE }}
+          packages: '["git", "curl", "bzip2", "jq"]'
+          aws-resource-tags: >
+            [{"Key": "Name", "Value": "benchx-arrow ${{ inputs.machine }}"},
+             {"Key": "project", "Value": "benchx-arrow"}]
+          # benchx names a machine by its host name, so every instance of one type
+          # takes the same one; otherwise each run would start a new series. The
+          # shutdown is a net under the stop job: it halts a forgotten instance,
+          # and the schedule workflow terminates what is left.
+          pre-runner-script: |
+            hostnamectl set-hostname "${{ inputs.machine }}"
+            echo "127.0.0.1 ${{ inputs.machine }}" >> /etc/hosts
+            shutdown -h +$(( ${{ inputs.budget_minutes }} + 120 ))
+  bench:
+    needs: start
+    runs-on: ${{ needs.start.outputs.label }}
+    # The budget, plus room for the setup, the build and the unit in flight.
+    timeout-minutes: ${{ fromJSON(needs.start.outputs.timeout) }}
+    env:
+      HOME: /root
+      BENCHX_WORK: /opt/benchx-arrow
+      BENCHX_SETUP_FILE: /opt/benchx-arrow/setup.json
+      SHA: ${{ inputs.sha }}
+      MACHINE: ${{ inputs.machine }}
+      SUITE_FILTER: ${{ inputs.suite_filter }}
+      BUDGET_MIN: ${{ inputs.budget_minutes }}
+      ATTEMPT_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      RAW_URL: s3://${{ vars.BENCH_BUCKET }}/raw
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+      SCCACHE_BUCKET: ${{ vars.BENCH_BUCKET }}
+      SCCACHE_REGION: ${{ vars.AWS_REGION }}
+      SCCACHE_S3_KEY_PREFIX: sccache/${{ needs.start.outputs.arch }}
+      ARROW_DEPENDENCY_SOURCE: CONDA
+    steps:
+      - uses: actions/checkout@v4
+      - name: set up the environment from the commit's dependency lists
+        run: ec2/setup-env.sh
+      - name: build and measure
+        run: |
+          "$BENCHX_WORK/bin/micromamba" run -p "$BENCHX_WORK/env" ec2/bench-run.sh
+      - name: sccache statistics
+        if: always()
+        run: |
+          "$BENCHX_WORK/bin/micromamba" run -p "$BENCHX_WORK/env" sccache --show-stats || true
+  stop:
+    needs: [start, bench]
+    if: always() && needs.start.outputs.instance != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: machulav/ec2-github-runner@v2.6.1
+        with:
+          mode: stop
+          github-token: ${{ secrets.GH_RUNNER_TOKEN }}
+          label: ${{ needs.start.outputs.label }}
+          ec2-instance-id: ${{ needs.start.outputs.instance }}
