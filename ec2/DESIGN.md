@@ -367,7 +367,7 @@ being measured, cannot write the Parquet files that readers use.
 
 ## 9. Prototype
 
-The prototype is on the `ec2-runners` branch of `rok/benchx-arrow`, beside the existing
+The prototype is in `rok/benchx-arrow`, beside the existing
 node setup: `ec2/` (run script, environment setup, machine list, setup guide),
 `.github/workflows/bench.yml` and `schedule.yml`, `tools/compact.py`, and a compaction
 and S3 sync step in `publish.yml`.
@@ -384,6 +384,10 @@ Differences from this document:
 - The schedule runs hourly, not every 15 minutes: in a private repository every timed
   run is a billed minute.
 - No `remeasure` input yet.
+- A run can be asked for in a comment in the prototype's own repository
+  (`@github-actions bench <commit>`, `command.yml` and `tools/command.py`), for commits
+  of the upstream branch only. This is a way to test by hand; it is not the pull
+  request benchmarking of section 6, which measures a head against its base.
 
 Tested locally with directories in place of the bucket: an attempt killed after one
 benchmark binary, a compaction of the partial run, a restart that ran only the missing

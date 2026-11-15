@@ -7,6 +7,7 @@ has the reasoning and the plan beyond the prototype.
 
 ```
 schedule.yml ── lists what each commit and machine left in raw/ ──▶ dispatches bench.yml
+command.yml  ── a comment `@github-actions bench <commit>` ───────▶ dispatches bench.yml
 bench.yml       start   launch the instance as a one-job runner (machulav/ec2-github-runner)
                 bench   ec2/setup-env.sh   conda environment from the commit's own lists
                         ec2/bench-run.sh   build with sccache, measure, upload each binary's results
@@ -40,6 +41,31 @@ raw objects changed in the last three days. It rebuilds a pair whole and deletes
 nothing, so it is safe to run at any time and to run twice. Raw objects are
 removed by a lifecycle rule after 90 days; until then the Parquet can be rebuilt
 from them (`--days N`, with N well below 90).
+
+## Asking for a benchmark
+
+Nothing is measured on its own until `SCHEDULE_ENABLED` is `true`. Until then, and
+after, a run is asked for in one of two ways.
+
+In a comment on any issue or pull request of this repository, on a line of its own:
+
+```
+@github-actions bench <commit> [machine=<name>] [filter=<regex>] [budget=<minutes>]
+@github-actions bench main filter=bit-util budget=30
+```
+
+`<commit>` is a sha (short or full), a tag or a branch of the upstream repository,
+and must be on the upstream branch. The defaults are the first enabled machine,
+every benchmark binary and 240 minutes; the budget may be at most 360. Only the
+owner, members of the organisation and collaborators are listened to. The answer
+comes back as a comment (`tools/command.py`). Like every comment trigger, this
+runs the workflow file on the default branch.
+
+Or from a shell, which takes any commit and does not check the branch:
+
+```
+gh workflow run bench.yml -f sha=<full sha> -f suite_filter=bit-util -f budget_minutes=30
+```
 
 ## Trying it without AWS
 
@@ -89,8 +115,8 @@ The workflows must be on the default branch before they can be dispatched.
    | `EC2_INSTANCE_ROLE` | the instance role's name |
    | `SCHEDULE_ENABLED` | `true` to let the hourly timer dispatch; leave unset at first |
 
-7. **First run.** Dispatch `bench` by hand with a recent commit and a narrow
-   `suite_filter` (for example `bit-util`) and a small `budget_minutes`. Then run
+7. **First run.** Ask for a recent commit with a narrow filter and a small budget
+   ("Asking for a benchmark" above; for example `filter=bit-util budget=30`). Then run
    `schedule` by hand with `dry_run` to see what it would start. A filtered run
    leaves the commit partial and counts as one of its attempts (two by default),
    so the scheduler will later run the rest of that commit once.
