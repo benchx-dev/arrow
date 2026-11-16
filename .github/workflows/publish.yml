@@ -4,15 +4,13 @@
 # repository plus, when the variable BENCH_BUCKET is set, what ephemeral machines
 # left in the bucket (the bench workflow), finished or not: tools/compact.py first
 # turns the bucket's raw/ uploads of the last days into Parquet under its runs/.
-# Runs of this workflow are serialized, so only one compaction writes at a time.
+# Every bench run dispatches this workflow when it ends. Runs of this workflow are
+# serialized, so only one compaction writes at a time.
 name: publish
 on:
   push:
     branches: [main]
     paths: ["runs/**", "tools/**", "site/**", "project.json", ".github/workflows/publish.yml"]
-  workflow_run:
-    workflows: [bench]
-    types: [completed]
   workflow_dispatch:
 concurrency:
   group: publish

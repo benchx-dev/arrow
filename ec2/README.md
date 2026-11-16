@@ -35,9 +35,10 @@ same dispatch again) lists the prefix and runs only the binaries that have no
 archive. There is no stored status: it is derived from the listing
 (`tools/run_state.py`).
 
-`tools/compact.py` runs in the publish workflow, which starts whenever a bench run
-ends. It rebuilds the three files under `runs/` for every commit and machine whose
-raw objects changed in the last three days. It rebuilds a pair whole and deletes
+`tools/compact.py` runs in the publish workflow, which every bench run that got
+an instance dispatches as its last job, however it ended. It rebuilds the three
+files under `runs/` for every commit and machine whose raw objects changed in the
+last three days. It rebuilds a pair whole and deletes
 nothing, so it is safe to run at any time and to run twice. Raw objects are
 removed by a lifecycle rule after 90 days; until then the Parquet can be rebuilt
 from them (`--days N`, with N well below 90).
