@@ -68,6 +68,7 @@ node/install-units.sh        install the systemd units for this checkout (--enab
 node/node.env.example        the node's settings; copy to node/node.env
 node/benchx-arrow.{service,timer}   systemd user units for the tick (templates; see install-units.sh)
 ec2/                         measuring on ephemeral EC2 instances from GitHub Actions (see ec2/README.md)
+ec2/aws-setup.yaml           the AWS side as a CloudFormation template: bucket, network, roles
 tools/remote.py              a bucket, or a directory standing in for one: get, put, list
 tools/run_state.py           what a machine uploads for a commit, and the status derived from it
 tools/compact.py             those uploads as the Parquet files under runs/

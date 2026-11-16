@@ -84,38 +84,56 @@ Kill the first and run it again to see the restart.
 
 The workflows must be on the default branch before they can be dispatched.
 
-1. **Bucket.** One S3 bucket, versioning on. Lifecycle rules: expire noncurrent
-   versions after 30 days; expire objects under `sccache/` after 30 days and under
-   `raw/` after 90 days. Never expire current objects under `runs/`.
-2. **Network.** A subnet whose instances can reach the internet (public subnet with
-   automatic public addresses, or a NAT), and a security group with no inbound rules
-   and all outbound allowed.
-3. **Instance role** (with an instance profile of the same name), for the machine
-   itself: `s3:GetObject` and `s3:PutObject` on `raw/*` and `sccache/*`,
-   `s3:ListBucket` on the bucket. It cannot touch `runs/`.
-4. **Workflow role**, assumed by GitHub through OIDC. Trust
-   `token.actions.githubusercontent.com` for `repo:<owner>/<repository>:*` only.
-   Permissions: `ec2:RunInstances`, `ec2:TerminateInstances`,
-   `ec2:DescribeInstances`, `ec2:DescribeInstanceStatus`, `ec2:CreateTags`,
-   `iam:PassRole` on the instance role, `s3:GetObject` and `s3:ListBucket` on the
-   bucket (the scheduler and the publish job read it), and `s3:PutObject` on
-   `runs/*` (the compaction writes it).
-5. **Runner token.** A fine-grained token for this repository with
+1. **AWS resources.** `ec2/aws-setup.yaml` is a CloudFormation template for all of
+   them. If the account already has an identity provider for
+   `token.actions.githubusercontent.com`, pass its ARN as `GitHubOidcProviderArn`;
+   an account can have only one.
+
+   ```
+   aws cloudformation deploy --stack-name benchx-arrow --template-file ec2/aws-setup.yaml \
+     --capabilities CAPABILITY_NAMED_IAM --parameter-overrides GitHubRepository=<owner>/<repository>
+   ```
+
+   It creates:
+
+   - **The bucket**, with versioning. Noncurrent versions expire after 30 days,
+     objects under `sccache/` after 30 days and under `raw/` after 90; current
+     objects under `runs/` never expire. A bucket policy refuses any upload of a
+     unit's archive that is not write-once, whoever sends it. Deleting the stack
+     keeps the bucket.
+   - **A network**: a small VPC with one public subnet, and a security group with
+     no inbound rules and all outbound allowed.
+   - **The instance role** (with an instance profile of the same name), for the
+     machine itself: read and write under `raw/` and `sccache/`, list the bucket.
+     It cannot touch `runs/` and cannot delete.
+   - **The workflow role**, assumed by GitHub through OIDC, by runs of this
+     repository on its default branch only. It may launch instances into that
+     subnet with the tag `project=benchx-arrow`, terminate instances with that
+     tag, hand them the instance role, read the bucket (the scheduler and the
+     publish job) and write under `runs/` (the compaction).
+2. **Runner token.** A fine-grained token for this repository with
    "Administration: read and write" (it creates runner registrations), saved as the
    secret `GH_RUNNER_TOKEN`. Note its expiry.
-6. **Repository variables.**
+3. **Repository variables.** Each output of the stack names the variable it goes
+   into, so this sets all but the last:
+
+   ```
+   aws cloudformation describe-stacks --stack-name benchx-arrow \
+     --query 'Stacks[0].Outputs[].[Description,OutputValue]' --output text |
+     while read -r name value; do gh variable set "$name" --body "$value"; done
+   ```
 
    | Variable | Value |
    |---|---|
    | `AWS_REGION` | the bucket's and the instances' region |
    | `AWS_ROLE_ARN` | the workflow role |
    | `BENCH_BUCKET` | the bucket's name |
-   | `EC2_AMI_X86_64`, `EC2_AMI_AARCH64` | stock Ubuntu 24.04 images for the region |
-   | `EC2_SUBNET_ID`, `EC2_SECURITY_GROUP_ID` | from step 2 |
+   | `EC2_AMI_X86_64`, `EC2_AMI_AARCH64` | the stock Ubuntu 24.04 images current when the stack was deployed; deploy again to move to newer ones |
+   | `EC2_SUBNET_ID`, `EC2_SECURITY_GROUP_ID` | the network |
    | `EC2_INSTANCE_ROLE` | the instance role's name |
    | `SCHEDULE_ENABLED` | `true` to let the hourly timer dispatch; leave unset at first |
 
-7. **First run.** Ask for a recent commit with a narrow filter and a small budget
+4. **First run.** Ask for a recent commit with a narrow filter and a small budget
    ("Asking for a benchmark" above; for example `filter=bit-util budget=30`). Then run
    `schedule` by hand with `dry_run` to see what it would start. A filtered run
    leaves the commit partial and counts as one of its attempts (two by default),
