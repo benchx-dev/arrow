@@ -209,7 +209,9 @@ benchx needs no change: the instance runs `bx bench --no-ingest`, the compaction
 ### 4.8 Publish workflow
 
 Triggered when a benchmark workflow ends in any state (success, failure, cancelled or
-timed out), and on manual dispatch.
+timed out), and on manual dispatch. The benchmark workflow dispatches it as its last job:
+GitHub starts no follow-on workflow by itself after a run that a workflow's own token
+started, which is how the scheduler starts every run.
 
 1. Compact `raw/` into `runs/` (4.7). Because each run looks at every pair of the last
    few days, a compaction that failed is made up by the next one; no separate timer is

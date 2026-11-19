@@ -1,8 +1,8 @@
 # One attempt at one Arrow commit on one machine: start an EC2 instance as a
 # one-job runner, set the environment up from nothing, build with sccache, measure
 # (ec2/bench-run.sh uploads each benchmark binary's results to the bucket's raw/
-# as soon as it has them), terminate. The publish workflow, which runs when this
-# one ends, compacts raw/ into Parquet.
+# as soon as it has them), terminate. The publish workflow, which the last
+# job here starts, compacts raw/ into Parquet.
 #
 # Repository variables: AWS_REGION, AWS_ROLE_ARN (assumed through OIDC: may launch
 # and terminate the instances, read the bucket and write its runs/), BENCH_BUCKET, EC2_AMI_X86_64,
@@ -134,3 +134,17 @@ jobs:
           github-token: ${{ secrets.GH_RUNNER_TOKEN }}
           label: ${{ needs.start.outputs.label }}
           ec2-instance-id: ${{ needs.start.outputs.instance }}
+  # Compact and publish what this run left, however it ended. GitHub does not
+  # start a workflow "on: workflow_run" after a run that was itself started with
+  # a workflow's token, as the scheduler's and a comment's are, so publish is
+  # dispatched here; a dispatch is the one thing that token may start.
+  publish:
+    needs: [start, bench, stop]
+    if: always() && needs.start.outputs.instance != ''
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY"
