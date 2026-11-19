@@ -177,7 +177,9 @@ uploads one archive per unit, as soon as the unit has run.
 **The instance only adds objects.** It never reads back, merges or replaces results:
 
 - A unit's archive is written once, with `If-None-Match: *`. A second writer of the same
-  unit is refused, so two attempts cannot overwrite each other.
+  unit is refused, so two attempts cannot overwrite each other. A bucket policy refuses
+  any upload of a unit's archive without that header, so the rule does not rest on the
+  code the instance runs.
 - An attempt's file and log are written only by that attempt.
 - There is no stored status. A unit is recorded when its archive exists; an attempt was
   made when its file exists. The scheduler and a restarting instance both derive the
