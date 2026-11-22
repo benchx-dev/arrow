@@ -6,8 +6,9 @@
 #
 # Repository variables: AWS_REGION, AWS_ROLE_ARN (assumed through OIDC: may launch
 # and terminate the instances, read the bucket and write its runs/), BENCH_BUCKET, EC2_AMI_X86_64,
-# EC2_AMI_AARCH64 (stock Ubuntu images), EC2_SUBNET_IDS (comma-separated, one per AZ for Spot failover),
-# EC2_SECURITY_GROUP_ID, EC2_INSTANCE_ROLE (the instance's own role: the bucket's raw/ and sccache/).
+# EC2_AMI_AARCH64 (stock Amazon Linux 2023 kernel 6.1 images), EC2_SUBNET_IDS (comma-separated,
+# one per AZ for Spot failover), EC2_SECURITY_GROUP_ID, EC2_INSTANCE_ROLE (the instance's own
+# role: the bucket's raw/ and sccache/).
 # Secret: GH_RUNNER_TOKEN, a token that may register runners in this repository.
 name: bench
 run-name: bench ${{ inputs.sha }} ${{ inputs.machine }}
@@ -80,8 +81,10 @@ jobs:
           ec2-instance-type: ${{ steps.machine.outputs.type }}
           market-type: ${{ steps.machine.outputs.market }}
           ec2-volume-size: ${{ steps.machine.outputs.volume }}
+          ec2-device-name: /dev/xvda
           iam-role-name: ${{ vars.EC2_INSTANCE_ROLE }}
-          packages: '["git", "curl", "bzip2", "jq"]'
+          # AL2023 ships curl-minimal (installing curl conflicts) and needs libicu for actions-runner (.NET).
+          packages: '["git", "bzip2", "jq", "tar", "libicu"]'
           aws-resource-tags: >
             [{"Key": "Name", "Value": "benchx-arrow ${{ inputs.machine }}"},
              {"Key": "project", "Value": "benchx-arrow"}]
