@@ -112,9 +112,23 @@ if [[ -z $ABORTED ]]; then
   BUILD=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["path"])' <<<"$DESCRIPTION")
   SRC=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["source_dir"])' <<<"$DESCRIPTION")
   export ARROW_TEST_DATA=$SRC/testing/data PARQUET_TEST_DATA=$SRC/cpp/submodules/parquet-testing/data
-  # Discovery: Arrow's benchmark binaries are release/*-benchmark. Another project
+  # Discovery: Arrow's benchmark binaries are release/*-benchmark (skipping any
+  # that register 0 benchmarks, e.g. reference-only targets). Another project
   # changes this line and --suite below (see PORTING.md); the adapter is in benchx.conf.json.
-  mapfile -t SUITES < <(cd "$BUILD/release" && ls -1 | grep -E -- '-benchmark$' | grep -E -- "$SUITE_FILTER" || true)
+  discover_suites() {
+    local bin listed
+    while IFS= read -r bin; do
+      [[ -n $bin ]] || continue
+      if listed=$("$BUILD/release/$bin" --benchmark_list_tests=true 2>/dev/null); then
+        if [[ -z ${listed//[[:space:]]/} ]]; then
+          echo "skipping $bin: no benchmarks registered" >&2
+          continue
+        fi
+      fi
+      printf '%s\n' "$bin"
+    done < <(cd "$BUILD/release" && ls -1 | grep -E -- '-benchmark$' | grep -E -- "$SUITE_FILTER" || true)
+  }
+  mapfile -t SUITES < <(discover_suites)
   echo "suites: ${#SUITES[@]}"
   if [[ ${#SUITES[@]} == 0 ]]; then
     echo "bench-node: no benchmark binary matches SUITE_FILTER='$SUITE_FILTER'"
@@ -133,6 +147,9 @@ if [[ -z $ABORTED ]]; then
       rc=0; OK=$((OK + 1))
     else
       rc=$?; FAILED=$((FAILED + 1)); echo "   exit $rc"
+      if [[ -s $out/table.txt ]]; then
+        tail -n 40 "$out/table.txt" | sed 's/^/   /' || true
+      fi
     fi
     n=$(ls "$out"/*.json 2>/dev/null | grep -vcE 'workorder-|_load-average\.json$' || true)
     SUITES_JSON=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d[sys.argv[2]]={"exit":int(sys.argv[3]),"results":int(sys.argv[4])}; print(json.dumps(d))' "$SUITES_JSON" "$suite" "$rc" "$n")

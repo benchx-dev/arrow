@@ -77,10 +77,29 @@ SRC=$("$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["target"]["sourc
 export ARROW_TEST_DATA=$SRC/testing/data PARQUET_TEST_DATA=$SRC/cpp/submodules/parquet-testing/data
 
 # ---- measure -----------------------------------------------------------------
-# The commit's units are all its benchmark binaries, whatever this attempt is
-# asked to run: an attempt with a SUITE_FILTER leaves the pair partial, not done.
-mapfile -t ALL < <(cd "$BUILD/release" && ls -1 | grep -E -- '-benchmark$' || true)
-mapfile -t SUITES < <(printf '%s\n' "${ALL[@]}" | grep -E -- "$SUITE_FILTER" || true)
+# The commit's units are all its benchmark binaries that register at least one
+# benchmark (reference-only targets compile empty unless built with
+# ARROW_WITH_BENCHMARKS_REFERENCE=ON), whatever this attempt is asked to run:
+# an attempt with a SUITE_FILTER leaves the pair partial, not done.
+discover_suites() {
+  local bin listed
+  while IFS= read -r bin; do
+    [[ -n $bin ]] || continue
+    if listed=$("$BUILD/release/$bin" --benchmark_list_tests=true 2>/dev/null); then
+      if [[ -z ${listed//[[:space:]]/} ]]; then
+        echo "skipping $bin: no benchmarks registered" >&2
+        continue
+      fi
+    fi
+    printf '%s\n' "$bin"
+  done < <(cd "$BUILD/release" && ls -1 | grep -E -- '-benchmark$' || true)
+}
+mapfile -t ALL < <(discover_suites)
+if (( ${#ALL[@]} > 0 )); then
+  mapfile -t SUITES < <(printf '%s\n' "${ALL[@]}" | grep -E -- "$SUITE_FILTER" || true)
+else
+  SUITES=()
+fi
 if [[ ${#SUITES[@]} == 0 ]]; then
   echo "bench-run: no benchmark binary matches SUITE_FILTER='$SUITE_FILTER'"
   finish discover
@@ -110,6 +129,9 @@ for suite in "${TODO[@]}"; do
     rc=0
   else
     rc=$?; echo "   exit $rc"
+    if [[ -s $out/table.txt ]]; then
+      tail -n 40 "$out/table.txt" | sed 's/^/   /' || true
+    fi
   fi
   # A failed upload leaves the unit unrecorded, for a restart.
   state record --attempt "$ATTEMPT_ID" "$suite" "$rc" "$out" || echo "bench-run: the upload of $suite failed"
