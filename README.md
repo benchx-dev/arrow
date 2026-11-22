@@ -1,196 +1,52 @@
-# <img src="site/logo.svg" alt="" width="36" align="top"> benchx-arrow
+# benchx-arrow
 
-A prototype of continuous benchmarking for [Apache Arrow](https://github.com/apache/arrow)
-C++ with [benchx](https://github.com/benchx-dev/benchx): new commits on `main`,
-measured on a dedicated machine, with the results filed here as Parquet
-and published as a dashboard at https://mihevc.org/benchx-arrow/.
+Continuous C++ micro-benchmark tracking for [Apache Arrow](https://github.com/apache/arrow), powered by [**benchx**](https://github.com/benchx-dev/benchx) and [**benchx-ci**](https://github.com/benchx-dev/benchx-ci).
 
-**Want this for your own project?** This repository is meant to be copied. Only
-the build (`provider/`) and the benchmark discovery (a few lines in
-`node/bench-node.sh`) are Arrow's; the project itself is one file,
-`project.json`. [PORTING.md](PORTING.md) walks through it, with a checklist.
+**Live dashboard:** https://mihevc.org/benchx-arrow/
 
-## Shape
+## How it works
 
-```
-apache/arrow main ◀─ git fetch (timer) ─ benchmark node ─ git push ─▶ this repository
-                                         provider → bx bench            runs/<sha>/<node>/   results.parquet, run.parquet
-                                                                        queue/<sha>          requests: backfill, re-run
-                                                                                 │  on: push
-                                                                                 ▼  hosted job, stateless
-                                                                        tools/marts.py → tables, tools/views.py → JSON
-                                                                        site/ → GitHub Pages
-```
+This repository holds **only Apache Arrow's configuration and build provider**. All measurement, storage, view generation (`bx view`), and CI/EC2 orchestration live in `benchx` and `benchx-ci`:
 
-- **The node pushes Parquet; everything else is derived.** A timer on the
-  benchmark machine runs `node/bench-node.sh`: fetch Arrow, pick a commit, have
-  the provider build it, run every benchmark binary through `bx bench`, ingest
-  the results, file `results.parquet` and `run.parquet` under
-  `runs/<sha>/<node>/`, commit, push. Raw documents and harness output stay on
-  the node, in `$WORK/raw`, and never enter git. No scheduler service, no runner
-  registration, no API polling. The state is the repository: `ls runs/` says what
-  was measured, `queue/` says what is asked for.
-- **Requests are files.** Add `queue/<sha>` to backfill a skipped commit or to
-  re-measure one. The node takes queue entries before anything on main and
-  removes them with the commit that files the results.
-- **The dashboard's tables are derived from the Parquet in `runs/`.** The GitHub
-  Actions job runs `tools/marts.py`, which derives small, flat, per-view tables
-  with chDB (in process, SQL over Parquet): commits, points per suite, changes,
-  latest, movers. They are published to GitHub Pages with the page under `site/`.
-  `results.parquet` is a benchx store of one run and keeps every result's full
-  document, so nothing the tables need is lost with the raw files.
-- **The provider builds, benchx measures.** `provider/arrow-provider.sh` speaks
-  benchx's target-provider contract: fetch the commit, check it out into one
-  reused worktree, configure and build incrementally with CMake, hand back a
-  target description whose `how_built` is the exact commands it ran. Nothing in
-  benchx builds or tunes anything.
+| File | Role |
+|---|---|
+| [`project.json`](project.json) | Upstream repo, branch, commit URL template, and commit-title skip tags |
+| [`benchx.conf.json`](benchx.conf.json) | Target provider command (`provider/arrow-provider.sh`) and `google-benchmark` adapter |
+| [`machines.json`](machines.json) | Ephemeral AWS EC2 Spot machine definitions (`c6a.4xlarge`, `m5.4xlarge`, `t4g.2xlarge`) |
+| [`provider/arrow-provider.sh`](provider/arrow-provider.sh) | Checks out and incrementally builds Apache Arrow C++ with CMake + Ninja + `sccache` |
+| [`provider/setup-env.sh`](provider/setup-env.sh) | Builds the commit's conda environment (`ci/conda_env_{unix,cpp}.txt`) + `benchx[parquet]` on fresh EC2 instances |
+| [`provider/discover.sh`](provider/discover.sh) | Lists runnable `release/*-benchmark` binaries (skipping reference-only 0-test binaries) |
+| [`.github/workflows/`](.github/workflows/) | Thin callers delegating `bench`, `publish`, `schedule`, and `command` to [`benchx-dev/benchx-ci`](https://github.com/benchx-dev/benchx-ci) |
 
-Coverage is newest-first: each tick measures the newest commit on `main` the
-node has not measured, so a node faster than the branch measures every commit
-and a slower one skips some, which `queue/` backfills.
+## Running a benchmark
 
-This is the operational shape asv users run (cron, results committed, static
-publish), with what asv lacks: explicit skipping and backfill, machine identity
-and ancestry recorded with every run, dirty trees recorded instead of ignored,
-and noise-aware verdicts once benchx's history mode exists.
+### Manually (workflow dispatch)
 
-## Layout
-
-```
-project.json                 the project: name, title, upstream and branch, links
-PORTING.md                   how to make this benchmark another repository
-benchx.conf.json             how `bx` measures: the provider and the adapter
-provider/arrow-provider.sh   the Arrow C++ target provider (describe | prepare)
-provider/clone-lib.sh        the shared clone, fetch and resolve helpers
-node/bench-node.sh           one tick: pick, build, measure, file, push
-node/check-node.sh           preflight for a node: tools, upstream, push access, governor
-node/install-units.sh        install the systemd units for this checkout (--enable starts the timer)
-node/node.env.example        the node's settings; copy to node/node.env
-node/benchx-arrow.{service,timer}   systemd user units for the tick (templates; see install-units.sh)
-ec2/                         measuring on ephemeral EC2 instances from GitHub Actions (see ec2/README.md)
-ec2/aws-setup.yaml           the AWS side as a CloudFormation template: bucket, network, roles
-tools/remote.py              a bucket, or a directory standing in for one: get, put, list
-tools/run_state.py           what a machine uploads for a commit, and the status derived from it
-tools/compact.py             those uploads as the Parquet files under runs/
-tools/schedule.py            which commits to dispatch next
-tools/command.py             a benchmark asked for in a comment (`@github-actions bench <commit>`)
-tools/test_ec2.py            the restart logic, the compaction, the scheduler's plan, the comment command
-queue/                       requests (empty files named after commits)
-runs/                        the results, as Parquet (see runs/README.md)
-tools/file_run.py            a tick's commit, status and log as run.parquet (on the node)
-tools/build-site.sh          derive site/data from runs/ (local or CI)
-tools/marts.py               the derived tables, in chDB SQL (documented at the top of the file)
-tools/views.py               the page's JSON views, in chDB SQL over those tables
-tools/test_marts.py          the tables' arithmetic on synthetic points
-tools/test_views.py          the views: alignment with failures, failure lists, direction, an empty start
-tools/test_store.py          the points, on a store the pinned benchx wrote (testdata/)
-tools/requirements.txt       the pinned benchx and the derived layer's dependencies
-site/                        the dashboard (index.html, app.js, style.css, logo.svg, favicon.svg); site/data/ is generated and git-ignored
-.github/workflows/publish.yml   test, build the tables, deploy site/ to Pages
+```bash
+gh workflow run bench.yml --repo rok/benchx-arrow \
+  -f sha=main \
+  -f machine=amd64-c6a-4xlarge-linux \
+  -f suite_filter='arrow-bit-util-benchmark'
 ```
 
-## The derived tables
+### From an issue or PR comment
 
-`site/data/`, rebuilt by every publish and by `tools/build-site.sh` locally
-(needs a python with `tools/requirements.txt`: `PYTHON=… tools/build-site.sh`).
+Collaborators can comment on any issue or PR in this repository:
 
-| table | one row per | for |
-|---|---|---|
-| `commits.parquet` | measured commit × node | landing stats, recent commits, status |
-| `points.parquet` | result, sorted by suite, case and commit order | history charts, variant and node breakdowns |
-| `changes.parquet` | point with a predecessor in its series | commit-against-previous tables |
-| `latest.parquet` | series (suite, case, params, quantity, node) | KPI tiles, search, noise ranks |
-| `movers.parquet` | the largest changes per commit × node | regressed and improved lists |
-| `manifest.json` | the build | counts, latest commit, table list, definitions |
-
-`rel_change` is estimate over the previous measured point of the same series,
-minus one, with `prev_is_parent` and `gap` saying whether that point is the
-commit's parent. It is a heuristic until benchx's comparator history mode
-produces verdicts with noise. `noise` is the median absolute consecutive change
-over a series' last 21 points.
-
-`tools/views.py` then writes `site/data/views/`: `landing.json`, `series.json`,
-`sparks.json` (the last 60 points of every series, for the front page),
-`history/<suite>.json` and `commits/<sha>.json`, the documents the page reads.
-Every number on the page is computed there, by chDB; the page runs no engine.
-
-## The dashboard
-
-`site/` is a static page over those views, in the spirit of ClickPy and asv's
-web UI. It answers "what did the latest run find?" first:
-
-- **Overview.** The latest run on each node: its commit, how many results
-  failed, the largest regressions and improvements against the previous
-  measurement, and every benchmark that failed, with benchx's reason. Below it,
-  one small history chart per benchmark across every suite (sorted by largest
-  change, filterable by suite and name, paged), recent commits, the noisiest
-  series and suite wall times.
-- **Suite, benchmark and commit pages.** A suite page has one small chart per
-  benchmark. A benchmark page has KPI tiles, the history chart (uPlot, with
-  failed attempts marked under the axis) and its biggest moves. A commit page
-  shows its runs with links to their logs, its failed results, and every change
-  with the baseline it was measured against.
-- **About.** How to read the numbers, and a pointer to PORTING.md.
-
-Changes are colored by the quantity's direction. A change smaller than twice
-the series' noise is drawn muted, because ordinary run-to-run variation would
-produce it too. Noise is shown only once a series has three measurements. Light
-and dark follow the OS, with a toggle. The title and links come from
-`project.json`. Data is fetched with cache-busting query strings, and the
-publish job stamps its commit into the asset URLs in `index.html`, because
-Pages caches files for four hours.
-
-To look at it locally after `tools/build-site.sh`: `python3 -m http.server -d site 8765`.
-
-GitHub Pages deploys only when the repository variable `PAGES_ENABLED` is
-`true` (`gh variable set PAGES_ENABLED --body true`), after Pages is enabled
-in the repository settings with GitHub Actions as the source. The site is at
-https://mihevc.org/benchx-arrow/.
-
-## Setting up a node
-
-```console
-$ git clone https://github.com/rok/benchx-arrow ~/benchx-arrow && cd ~/benchx-arrow
-$ cp node/node.env.example node/node.env && $EDITOR node/node.env
-$ uv venv ~/.benchx-arrow/venv && uv pip install --python ~/.benchx-arrow/venv/bin/python -r tools/requirements.txt
-$ node/check-node.sh                        # preflight: tools, upstream, push access, governor
-$ GIT_PUSH=0 node/bench-node.sh             # a first tick, kept local: builds Arrow, measures, files under runs/
-$ git clean -fd runs/                       # drop that local run, or the timer will consider it measured
-$ node/install-units.sh --enable            # systemd user units benchx-arrow.*, pointing at this checkout
-$ loginctl enable-linger $USER              # keep the timer running without a login session
+```text
+@github-actions bench <commit> [machine=<name>] [filter=<regex>] [budget=<minutes>]
 ```
 
-The node commits and pushes as the git identity configured in this checkout,
-with whatever credentials `git push` uses there (an SSH deploy key with write
-access is the simplest). `check-node.sh` checks both.
+### Locally
 
-The node needs `git`, `cmake`, `ninja`, a C++ compiler, and Arrow's build
-dependencies; what the system lacks, Arrow's CMake fetches and builds
-(`ARROW_DEPENDENCY_SOURCE=AUTO`). `ccache` is used when present. The first build
-takes the better part of an hour; later ones rebuild only what the commit
-touched. Treat the machine as a benchmark node: nothing else scheduled on it,
-fixed frequency governor, upgrades applied deliberately between runs
-(benchx's `benchmark-environments.md` §5.3).
+Because `provider/arrow-provider.sh` is self-contained, you can measure Arrow C++ locally with `benchx` and inspect the same dashboard via `bx view`:
 
-`node/bench-node.sh <commit>` measures one commit now, regardless of queue and main.
+```bash
+pip install "benchx[parquet]"
+bx bench @cpp=main --suite release/arrow-bit-util-benchmark
+bx view
+```
 
-## Status
+## Setting this up for your own project
 
-Prototype. Known gaps, in the order they bite:
-
-- The runner's default of 600 s per order cuts long benchmark binaries short,
-  with the unstarted cases filed as `timeout-order` errors. `timeouts.order_s`
-  in `benchx.conf.json` raises it.
-- benchx's Google Benchmark adapter translates wall time and CPU time only.
-  Arrow's benchmarks report mostly through `bytes_per_second` and
-  `items_per_second` counters, which are not yet quantities.
-- No verdicts yet: benchx's comparator has run mode only. History mode
-  (this commit against its ancestors, k × noise) is what turns the results into
-  alerts; `run.parquet` records the ancestry it will need.
-- Every node runs the benchx `tools/requirements.txt` pins. Parquet from two
-  benchx result schemas does not read as one table. When a pin
-  moves to a new schema, re-measure what should stay on the page.
-
-Measured on these runs (two binaries, 94 results, one repetition): about 140 KB
-of Parquet per commit, so a full Arrow C++ run of about a thousand results costs
-on the order of a megabyte or two of repository per commit.
+See [`benchx-dev/benchx-ci`](https://github.com/benchx-dev/benchx-ci) for the AWS CloudFormation template (`aws/setup.yaml`) and reusable workflow inputs.

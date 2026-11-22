@@ -1,2 +1,0 @@
-# The remote store of run files (tools/remote.py with an s3:// URL).
-boto3>=1.36
