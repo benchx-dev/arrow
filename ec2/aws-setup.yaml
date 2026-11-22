@@ -36,12 +36,12 @@ Parameters:
       An account can have only one; leave empty to create it here.
   AmiX8664:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
-    Description: Canonical's public parameter for the current stock Ubuntu 24.04 image (x86_64).
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: AWS public parameter for Amazon Linux 2023 (kernel 6.1, x86_64), matching arrow-benchmarks-ci.
   AmiAarch64:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
-    Description: Canonical's public parameter for the current stock Ubuntu 24.04 image (aarch64).
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-arm64
+    Description: AWS public parameter for Amazon Linux 2023 (kernel 6.1, arm64), matching arrow-benchmarks-ci.
 
 Conditions:
   CreateOidcProvider: !Equals [!Ref GitHubOidcProviderArn, ""]

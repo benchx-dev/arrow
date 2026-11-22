@@ -133,7 +133,7 @@ The workflows must be on the default branch before they can be dispatched.
    | `AWS_REGION` | the bucket's and the instances' region (`us-east-2`) |
    | `AWS_ROLE_ARN` | the workflow role |
    | `BENCH_BUCKET` | the bucket's name |
-   | `EC2_AMI_X86_64`, `EC2_AMI_AARCH64` | the stock Ubuntu 24.04 images current when the stack was deployed; deploy again to move to newer ones |
+   | `EC2_AMI_X86_64`, `EC2_AMI_AARCH64` | the stock Amazon Linux 2023 (kernel 6.1) images current when the stack was deployed, matching `arrow-benchmarks-ci`; deploy again to move to newer ones |
    | `EC2_SUBNET_IDS`, `EC2_SECURITY_GROUP_ID` | the three AZ subnets (comma-separated, tried in order for Spot) and security group |
    | `EC2_INSTANCE_ROLE` | the instance role's name |
    | `SCHEDULE_ENABLED` | `true` to let the hourly timer dispatch; leave unset at first |
