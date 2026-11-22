@@ -2,7 +2,7 @@
 
 Continuous C++ micro-benchmark tracking for [Apache Arrow](https://github.com/apache/arrow), powered by [**benchx**](https://github.com/benchx-dev/benchx) and [**benchx-ci**](https://github.com/benchx-dev/benchx-ci).
 
-**Live dashboard:** https://benchx-dev.github.io/benchx-arrow/
+**Live dashboard:** https://arrow.benchx.dev/
 
 ## How it works
 
