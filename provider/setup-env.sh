@@ -1,27 +1,18 @@
 #!/usr/bin/env bash
-# Build the environment for one commit from nothing, on a fresh machine: a conda
-# environment from the dependency lists of the Arrow commit being measured, plus
-# the compilers, sccache and this repository's Python tools. Nothing here is
-# baked into the machine image, because Arrow's dependencies change with its
-# commits.
-#
-# The resolved package set is written to $BENCHX_SETUP_FILE, which benchx copies
-# into every result: a step in a series can then be told apart as the commit's or
-# the environment's.
-#
-#   SHA           the Arrow commit
-#   BENCHX_WORK   where everything goes; fixed across runs, since sccache keys
-#                 include paths (default /opt/benchx-arrow)
+# Build the conda environment for one Arrow commit on a fresh ephemeral machine
+# from the commit's own dependency lists, plus compilers, ninja, sccache, benchx,
+# and boto3. Writes resolved package and EC2 instance metadata to $BENCHX_SETUP_FILE.
 set -euo pipefail
 : "${SHA:?}"
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 export BENCHX_WORK=${BENCHX_WORK:-/opt/benchx-arrow}
-source "$ROOT/provider/clone-lib.sh"
+source "$HERE/clone-lib.sh"
 ENV=$WORK/env
 MAMBA=$WORK/bin/micromamba
 SETUP_FILE=${BENCHX_SETUP_FILE:-$WORK/setup.json}
 PYTHON_VERSION=${PYTHON_VERSION:-3.12}
+BENCHX_SPEC=${BENCHX_SPEC:-benchx[parquet]}
 
 mkdir -p "$WORK/bin" "$WORK/env-lists"
 if [[ ! -x $MAMBA ]]; then
@@ -43,7 +34,7 @@ done
 
 rm -rf "$ENV"
 "$MAMBA" create -y -q -p "$ENV" -c conda-forge "${files[@]}" compilers ninja sccache git pip "python=$PYTHON_VERSION"
-"$MAMBA" run -p "$ENV" pip install -q -r "$ROOT/tools/requirements.txt" -r "$ROOT/ec2/requirements.txt"
+"$MAMBA" run -p "$ENV" pip install -q "$BENCHX_SPEC" "boto3>=1.36"
 
 "$MAMBA" env export -p "$ENV" --explicit >"$WORK/env-explicit.txt"
 # The machine's own description, when this is EC2 (instance metadata, version 2).

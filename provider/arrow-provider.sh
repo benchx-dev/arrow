@@ -19,7 +19,6 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
-[[ -f $ROOT/node/node.env ]] && source "$ROOT/node/node.env"
 BUILD_JOBS=${BUILD_JOBS:-$(nproc)}
 source "$HERE/clone-lib.sh"
 

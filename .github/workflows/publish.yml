@@ -1,16 +1,8 @@
-# Derived, never a source of truth: derive the dashboard's tables from the Parquet
-# files under runs/ (tools/marts.py) and publish site/ to GitHub Pages when the
-# repository variable PAGES_ENABLED is "true". runs/ is what nodes pushed to this
-# repository plus, when the variable BENCH_BUCKET is set, what ephemeral machines
-# left in the bucket (the bench workflow), finished or not: tools/compact.py first
-# turns the bucket's raw/ uploads of the last days into Parquet under its runs/.
-# Every bench run dispatches this workflow when it ends. Runs of this workflow are
-# serialized, so only one compaction writes at a time.
 name: publish
 on:
   push:
     branches: [main]
-    paths: ["runs/**", "tools/**", "site/**", "project.json", ".github/workflows/publish.yml"]
+    paths: ["project.json", ".github/workflows/publish.yml"]
   workflow_dispatch:
 concurrency:
   group: publish
@@ -21,62 +13,4 @@ permissions:
   id-token: write
 jobs:
   publish:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - id: project
-        run: echo "name=$(jq -r .name project.json)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -q -r tools/requirements.txt -r ec2/requirements.txt
-      - uses: aws-actions/configure-aws-credentials@v4
-        if: vars.BENCH_BUCKET != ''
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: compact the uploads of ephemeral machines
-        if: vars.BENCH_BUCKET != ''
-        run: python tools/compact.py --raw-url "s3://${{ vars.BENCH_BUCKET }}/raw" --runs-url "s3://${{ vars.BENCH_BUCKET }}/runs" >> "$GITHUB_STEP_SUMMARY"
-      - name: fetch the runs of ephemeral machines
-        if: vars.BENCH_BUCKET != ''
-        run: aws s3 sync --only-show-errors "s3://${{ vars.BENCH_BUCKET }}/runs" runs --exclude '*' --include '*/run.parquet' --include '*/results.parquet'
-      - name: test the derived tables and views
-        run: python -m pytest -q tools
-      - name: derive
-        run: tools/build-site.sh
-      # Pages caches files for four hours, in browsers too. A commit in each asset URL
-      # keeps a page from mixing files of two deploys.
-      - name: stamp the asset URLs
-        run: sed -i -E 's/(href="(style\.css|favicon\.svg)|src="app\.js)"/\1?v=${{ github.sha }}"/' site/index.html
-      - name: summary
-        run: |
-          {
-            echo "## ${{ steps.project.outputs.name }} benchmarks"
-            echo
-            echo "commits measured: $(ls runs | grep -vc README || true)"
-            echo
-            echo '```json'
-            cat site/data/manifest.json
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: site
-          path: site
-      - uses: actions/configure-pages@v5
-        if: vars.PAGES_ENABLED == 'true'
-      - uses: actions/upload-pages-artifact@v3
-        if: vars.PAGES_ENABLED == 'true'
-        with:
-          path: site
-  deploy:
-    needs: publish
-    if: vars.PAGES_ENABLED == 'true'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+    uses: benchx-dev/benchx-ci/.github/workflows/publish.yml@main

@@ -1,13 +1,3 @@
-# A benchmark on request. A comment on any issue or pull request of this
-# repository with the line
-#
-#   @github-actions bench <commit> [machine=<name>] [filter=<regex>] [budget=<minutes>]
-#
-# written by the owner, a member of the organisation or a collaborator, dispatches
-# the bench workflow for that upstream commit (tools/command.py), and gets a
-# comment back saying what was dispatched or what was wrong with the request.
-#
-# A comment event always runs the workflow file on the default branch.
 name: command
 on:
   issue_comment:
@@ -22,13 +12,7 @@ jobs:
     if: >-
       contains(github.event.comment.body, '@github-actions bench') &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: dispatch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # Never interpolated into the script: a comment is anyone's text.
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          ISSUE: ${{ github.event.issue.number }}
-        run: python3 tools/command.py --repo "$GITHUB_REPOSITORY" --issue "$ISSUE"
+    uses: benchx-dev/benchx-ci/.github/workflows/command.yml@main
+    with:
+      comment_body: ${{ github.event.comment.body }}
+      issue_number: ${{ format('{0}', github.event.issue.number) }}
