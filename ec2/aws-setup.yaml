@@ -4,12 +4,14 @@ Description: >-
   the bucket, a network to launch into, the role of the instances and the role
   the GitHub workflows assume. See ec2/README.md.
 
-# Deploy, then copy the outputs into repository variables (each output's
+# Deploy (us-east-2 has all three benchmark instance types across three AZs at the
+# lowest Spot prices), then copy the outputs into repository variables (each output's
 # description is the variable's name):
 #
-#   aws cloudformation deploy --stack-name benchx-arrow --template-file ec2/aws-setup.yaml \
-#     --capabilities CAPABILITY_NAMED_IAM --parameter-overrides GitHubRepository=<owner>/<repository>
-#   aws cloudformation describe-stacks --stack-name benchx-arrow \
+#   aws cloudformation deploy --region us-east-2 --stack-name benchx-arrow \
+#     --template-file ec2/aws-setup.yaml --capabilities CAPABILITY_NAMED_IAM \
+#     --parameter-overrides GitHubRepository=<owner>/<repository>
+#   aws cloudformation describe-stacks --region us-east-2 --stack-name benchx-arrow \
 #     --query 'Stacks[0].Outputs[].[Description,OutputValue]' --output text |
 #     while read -r name value; do gh variable set "$name" --body "$value"; done
 #
@@ -32,10 +34,6 @@ Parameters:
     Description: >-
       The ARN of the account's identity provider for token.actions.githubusercontent.com.
       An account can have only one; leave empty to create it here.
-  AvailabilityZone:
-    Type: String
-    Default: ""
-    Description: The zone of the subnet; empty for the region's first. Pick one that has the instance types in ec2/machines.json.
   AmiX8664:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
@@ -47,7 +45,6 @@ Parameters:
 
 Conditions:
   CreateOidcProvider: !Equals [!Ref GitHubOidcProviderArn, ""]
-  FirstZone: !Equals [!Ref AvailabilityZone, ""]
 
 Resources:
   # ---- the bucket ------------------------------------------------------------
@@ -106,7 +103,7 @@ Resources:
               Bool:
                 "s3:ObjectCreationOperation": "true"
 
-  # ---- the network: one public subnet, nothing may connect in ----------------
+  # ---- the network: three public subnets (one per AZ for Spot failover), no inbound ----
   Vpc:
     Type: AWS::EC2::VPC
     Properties:
@@ -125,15 +122,33 @@ Resources:
     Properties:
       VpcId: !Ref Vpc
       InternetGatewayId: !Ref InternetGateway
-  Subnet:
+  Subnet0:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref Vpc
-      CidrBlock: 10.71.0.0/24
-      AvailabilityZone: !If [FirstZone, !Select [0, !GetAZs ""], !Ref AvailabilityZone]
+      CidrBlock: 10.71.0.0/26
+      AvailabilityZone: !Select [0, !GetAZs ""]
       MapPublicIpOnLaunch: true
       Tags:
-        - {Key: Name, Value: !Ref "AWS::StackName"}
+        - {Key: Name, Value: !Sub "${AWS::StackName}-az0"}
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.71.0.64/26
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-az1"}
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.71.0.128/26
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-az2"}
   RouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -145,10 +160,20 @@ Resources:
       RouteTableId: !Ref RouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
-  SubnetRoutes:
+  Subnet0Routes:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref Subnet
+      SubnetId: !Ref Subnet0
+      RouteTableId: !Ref RouteTable
+  Subnet1Routes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet1
+      RouteTableId: !Ref RouteTable
+  Subnet2Routes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet2
       RouteTableId: !Ref RouteTable
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -216,13 +241,15 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # Launch only into this subnet and security group, and only with
+              # Launch only into these subnets and security group, and only with
               # the project tag, which is what lets the role terminate it later.
               - Sid: LaunchHere
                 Effect: Allow
                 Action: ec2:RunInstances
                 Resource:
-                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet}"
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet0}"
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet1}"
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet2}"
                   - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${SecurityGroup}"
                   - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}::image/*"
                   - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
@@ -245,7 +272,7 @@ Resources:
                     "ec2:CreateAction": RunInstances
               - Sid: TerminateOwn
                 Effect: Allow
-                Action: ec2:TerminateInstances
+                Action: [ec2:TerminateInstances, ec2:GetConsoleOutput]
                 Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
                 Condition:
                   StringEquals:
@@ -293,9 +320,9 @@ Outputs:
   ImageAarch64:
     Description: EC2_AMI_AARCH64
     Value: !Ref AmiAarch64
-  SubnetId:
-    Description: EC2_SUBNET_ID
-    Value: !Ref Subnet
+  SubnetIds:
+    Description: EC2_SUBNET_IDS
+    Value: !Sub "${Subnet0},${Subnet1},${Subnet2}"
   SecurityGroupId:
     Description: EC2_SECURITY_GROUP_ID
     Value: !Ref SecurityGroup

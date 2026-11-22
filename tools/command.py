@@ -8,7 +8,7 @@ A line of a comment on any issue or pull request of this repository:
 <commit> is a sha (short or full), a tag or a branch of the upstream repository
 (project.json). It must be on the upstream branch: every run is filed into that
 branch's series, so a commit from elsewhere would be a point that does not belong.
-machine is a name from ec2/machines.json (default: the first enabled one), filter a
+machine is a name from ec2/machines.json (default: the first scheduled one, or the first listed), filter a
 regex over benchmark binaries (default: all), budget the minutes after which no new
 binary is started (default 240).
 
@@ -48,7 +48,8 @@ def parse(body: str, machines: dict) -> tuple[dict | None, str | None]:
     commit = words[0]
     if not COMMIT.fullmatch(commit) or ".." in commit:
         return None, f"`{commit}` does not look like a commit"
-    request = {"commit": commit, "machine": next((name for name, m in machines.items() if m.get("enabled")), None),
+    default_machine = next((name for name, m in machines.items() if m.get("scheduled")), next(iter(machines), None))
+    request = {"commit": commit, "machine": default_machine,
                "suite_filter": ".", "budget_minutes": "240"}
     for word in words[1:]:
         key, equals, value = word.partition("=")

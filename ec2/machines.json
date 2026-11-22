@@ -1,4 +1,5 @@
 {
- "amd64-c6a-4xlarge-linux": {"enabled": true, "instance_type": "c6a.4xlarge", "arch": "x86_64", "volume_gb": 100},
- "arm64-t4g-2xlarge-linux": {"enabled": false, "instance_type": "t4g.2xlarge", "arch": "aarch64", "volume_gb": 100}
+ "amd64-c6a-4xlarge-linux": {"scheduled": false, "instance_type": "c6a.4xlarge", "arch": "x86_64", "volume_gb": 100, "market": "spot"},
+ "amd64-m5-4xlarge-linux": {"scheduled": false, "instance_type": "m5.4xlarge", "arch": "x86_64", "volume_gb": 100, "market": "spot"},
+ "arm64-t4g-2xlarge-linux": {"scheduled": false, "instance_type": "t4g.2xlarge", "arch": "aarch64", "volume_gb": 100, "market": "spot"}
 }

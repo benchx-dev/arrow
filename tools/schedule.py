@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Dispatch the bench workflow for commits a machine still has to measure.
 
-For the newest commits on the upstream branch (project.json) and every enabled
+For the newest commits on the upstream branch (project.json) and every scheduled
 machine (ec2/machines.json), derive the pair's status from what the machine left in
 the raw store (tools/run_state.py). A pair is dispatched when nothing was ever
 uploaded for it, or it is incomplete with attempts left, and no bench run for it is
@@ -94,7 +94,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     project = json.loads((ROOT / "project.json").read_text())
-    machines = [name for name, m in json.loads((ROOT / "ec2" / "machines.json").read_text()).items() if m.get("enabled")]
+    machines = [name for name, m in json.loads((ROOT / "ec2" / "machines.json").read_text()).items() if m.get("scheduled")]
     store = remote.remote(args.raw_url)
     with tempfile.TemporaryDirectory() as scratch:
         chosen, lines = plan(
