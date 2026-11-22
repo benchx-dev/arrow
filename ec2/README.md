@@ -91,7 +91,9 @@ The workflows must be on the default branch before they can be dispatched.
    all three AZs at the lowest Spot prices and with lower Spot contention than
    `us-east-1`). If the account already has an identity provider for
    `token.actions.githubusercontent.com`, pass its ARN as `GitHubOidcProviderArn`;
-   an account can have only one.
+   an account can have only one. If the repository uses GitHub's immutable OIDC
+   subject (check `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`),
+   pass its `sub_claim_prefix` as `GitHubOidcSubPrefix`.
 
    ```
    aws cloudformation deploy --region us-east-2 --stack-name benchx-arrow \
