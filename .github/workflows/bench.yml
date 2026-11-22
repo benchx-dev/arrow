@@ -6,8 +6,8 @@
 #
 # Repository variables: AWS_REGION, AWS_ROLE_ARN (assumed through OIDC: may launch
 # and terminate the instances, read the bucket and write its runs/), BENCH_BUCKET, EC2_AMI_X86_64,
-# EC2_AMI_AARCH64 (stock Ubuntu images), EC2_SUBNET_ID, EC2_SECURITY_GROUP_ID,
-# EC2_INSTANCE_ROLE (the instance's own role: the bucket's raw/ and sccache/).
+# EC2_AMI_AARCH64 (stock Ubuntu images), EC2_SUBNET_IDS (comma-separated, one per AZ for Spot failover),
+# EC2_SECURITY_GROUP_ID, EC2_INSTANCE_ROLE (the instance's own role: the bucket's raw/ and sccache/).
 # Secret: GH_RUNNER_TOKEN, a token that may register runners in this repository.
 name: bench
 run-name: bench ${{ inputs.sha }} ${{ inputs.machine }}
@@ -48,18 +48,24 @@ jobs:
           MACHINE: ${{ inputs.machine }}
           AMI_X86_64: ${{ vars.EC2_AMI_X86_64 }}
           AMI_AARCH64: ${{ vars.EC2_AMI_AARCH64 }}
+          SUBNETS: ${{ vars.EC2_SUBNET_IDS || vars.EC2_SUBNET_ID }}
+          SG: ${{ vars.EC2_SECURITY_GROUP_ID }}
+          REGION: ${{ vars.AWS_REGION }}
           BUDGET: ${{ inputs.budget_minutes }}
         run: |
           [[ $BUDGET =~ ^[0-9]+$ ]] || { echo "budget_minutes must be a number"; exit 1; }
           jq -e --arg m "$MACHINE" '.[$m]' ec2/machines.json >/dev/null || { echo "unknown machine $MACHINE"; exit 1; }
           arch=$(jq -r --arg m "$MACHINE" '.[$m].arch' ec2/machines.json)
           ami=$AMI_X86_64; [[ $arch == aarch64 ]] && ami=$AMI_AARCH64
+          az_config=$(jq -nc --arg ami "$ami" --arg sg "$SG" --arg region "$REGION" --arg subnets "$SUBNETS" \
+            '[$subnets | split(",")[] | select(length > 0) | {imageId: $ami, subnetId: ., securityGroupId: $sg, region: $region}]')
           {
             echo "arch=$arch"
             echo "timeout=$((BUDGET + 90))"
-            echo "ami=$ami"
+            echo "az_config=$az_config"
             echo "type=$(jq -r --arg m "$MACHINE" '.[$m].instance_type' ec2/machines.json)"
             echo "volume=$(jq -r --arg m "$MACHINE" '.[$m].volume_gb' ec2/machines.json)"
+            echo "market=$(jq -r --arg m "$MACHINE" '.[$m].market // ""' ec2/machines.json)"
           } >> "$GITHUB_OUTPUT"
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -70,11 +76,10 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.GH_RUNNER_TOKEN }}
-          ec2-image-id: ${{ steps.machine.outputs.ami }}
+          availability-zones-config: ${{ steps.machine.outputs.az_config }}
           ec2-instance-type: ${{ steps.machine.outputs.type }}
+          market-type: ${{ steps.machine.outputs.market }}
           ec2-volume-size: ${{ steps.machine.outputs.volume }}
-          subnet-id: ${{ vars.EC2_SUBNET_ID }}
-          security-group-id: ${{ vars.EC2_SECURITY_GROUP_ID }}
           iam-role-name: ${{ vars.EC2_INSTANCE_ROLE }}
           packages: '["git", "curl", "bzip2", "jq"]'
           aws-resource-tags: >

@@ -56,7 +56,8 @@ In a comment on any issue or pull request of this repository, on a line of its o
 ```
 
 `<commit>` is a sha (short or full), a tag or a branch of the upstream repository,
-and must be on the upstream branch. The defaults are the first enabled machine,
+and must be on the upstream branch. The defaults are the first scheduled machine
+(or the first listed when none are scheduled),
 every benchmark binary and 240 minutes; the budget may be at most 360. Only the
 owner, members of the organisation and collaborators are listened to. The answer
 comes back as a comment (`tools/command.py`). Like every comment trigger, this
@@ -86,13 +87,16 @@ Kill the first and run it again to see the restart.
 The workflows must be on the default branch before they can be dispatched.
 
 1. **AWS resources.** `ec2/aws-setup.yaml` is a CloudFormation template for all of
-   them. If the account already has an identity provider for
+   them. Deploy in `us-east-2` (all three benchmark instance types are available across
+   all three AZs at the lowest Spot prices and with lower Spot contention than
+   `us-east-1`). If the account already has an identity provider for
    `token.actions.githubusercontent.com`, pass its ARN as `GitHubOidcProviderArn`;
    an account can have only one.
 
    ```
-   aws cloudformation deploy --stack-name benchx-arrow --template-file ec2/aws-setup.yaml \
-     --capabilities CAPABILITY_NAMED_IAM --parameter-overrides GitHubRepository=<owner>/<repository>
+   aws cloudformation deploy --region us-east-2 --stack-name benchx-arrow \
+     --template-file ec2/aws-setup.yaml --capabilities CAPABILITY_NAMED_IAM \
+     --parameter-overrides GitHubRepository=<owner>/<repository>
    ```
 
    It creates:
@@ -102,14 +106,14 @@ The workflows must be on the default branch before they can be dispatched.
      objects under `runs/` never expire. A bucket policy refuses any upload of a
      unit's archive that is not write-once, whoever sends it. Deleting the stack
      keeps the bucket.
-   - **A network**: a small VPC with one public subnet, and a security group with
-     no inbound rules and all outbound allowed.
+   - **A network**: a small VPC with three public subnets (one per AZ, for Spot
+     failover), and a security group with no inbound rules and all outbound allowed.
    - **The instance role** (with an instance profile of the same name), for the
      machine itself: read and write under `raw/` and `sccache/`, list the bucket.
      It cannot touch `runs/` and cannot delete.
    - **The workflow role**, assumed by GitHub through OIDC, by runs of this
-     repository on its default branch only. It may launch instances into that
-     subnet with the tag `project=benchx-arrow`, terminate instances with that
+     repository on its default branch only. It may launch instances into those
+     subnets with the tag `project=benchx-arrow`, terminate instances with that
      tag, hand them the instance role, read the bucket (the scheduler and the
      publish job) and write under `runs/` (the compaction).
 2. **Runner token.** A fine-grained token for this repository with
@@ -119,18 +123,18 @@ The workflows must be on the default branch before they can be dispatched.
    into, so this sets all but the last:
 
    ```
-   aws cloudformation describe-stacks --stack-name benchx-arrow \
+   aws cloudformation describe-stacks --region us-east-2 --stack-name benchx-arrow \
      --query 'Stacks[0].Outputs[].[Description,OutputValue]' --output text |
      while read -r name value; do gh variable set "$name" --body "$value"; done
    ```
 
    | Variable | Value |
    |---|---|
-   | `AWS_REGION` | the bucket's and the instances' region |
+   | `AWS_REGION` | the bucket's and the instances' region (`us-east-2`) |
    | `AWS_ROLE_ARN` | the workflow role |
    | `BENCH_BUCKET` | the bucket's name |
    | `EC2_AMI_X86_64`, `EC2_AMI_AARCH64` | the stock Ubuntu 24.04 images current when the stack was deployed; deploy again to move to newer ones |
-   | `EC2_SUBNET_ID`, `EC2_SECURITY_GROUP_ID` | the network |
+   | `EC2_SUBNET_IDS`, `EC2_SECURITY_GROUP_ID` | the three AZ subnets (comma-separated, tried in order for Spot) and security group |
    | `EC2_INSTANCE_ROLE` | the instance role's name |
    | `SCHEDULE_ENABLED` | `true` to let the hourly timer dispatch; leave unset at first |
 
@@ -140,7 +144,7 @@ The workflows must be on the default branch before they can be dispatched.
    leaves the commit partial and counts as one of its attempts (two by default),
    so the scheduler will later run the rest of that commit once.
 
-Machines are listed in `ec2/machines.json`; only enabled ones are scheduled.
+Machines are listed in `ec2/machines.json`; any listed machine can be launched manually, and only those with `"scheduled": true` are dispatched by the timer.
 
 ## Costs to keep in mind
 

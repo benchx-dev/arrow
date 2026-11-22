@@ -173,13 +173,15 @@ def test_a_filtered_attempt_leaves_the_pair_partial(tmp_path):
 
 
 def test_a_comment_is_parsed_into_a_request():
-    machines = {"big": {"enabled": False}, "small": {"enabled": True}}
+    machines = {"big": {"scheduled": False}, "small": {"scheduled": True}}
     parse = lambda body: command.parse(body, machines)  # noqa: E731
     assert parse("thanks, @github-actions bench abc") == (None, None)          # not at the start of a line
     assert parse("> @github-actions bench abc") == (None, None)                # a quoted command
     assert parse("@github-actions benchmarks abc") == (None, None)
     assert parse("please:\r\n@github-actions bench abc1234\r\nthanks")[0] == {
         "commit": "abc1234", "machine": "small", "suite_filter": ".", "budget_minutes": "240"}
+    assert command.parse("@github-actions bench abc1234", {"big": {"scheduled": False}, "small": {"scheduled": False}})[0] == {
+        "commit": "abc1234", "machine": "big", "suite_filter": ".", "budget_minutes": "240"}
     assert parse("@github-actions benchmark main machine=big filter=bit-util|csv budget=30")[0] == {
         "commit": "main", "machine": "big", "suite_filter": "bit-util|csv", "budget_minutes": "30"}
     assert parse("@github-actions bench abc budget=030")[0]["budget_minutes"] == "30"
