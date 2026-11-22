@@ -7,7 +7,7 @@
   "branch": "main",
   "commit_url": "https://github.com/apache/arrow/commit/{sha}"
  },
- "repository": "https://github.com/rok/benchx-arrow",
+ "repository": "https://github.com/benchx-dev/benchx-arrow",
  "skip_commit_tags": [
   "[C#]", "[CI]", "[Dev]", "[Doc]", "[Docs]", "[Glib]",
   "[Go]", "[Java]", "[MATLAB]", "MINOR:", "[Release]", "[Ruby]"
