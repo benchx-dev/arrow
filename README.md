@@ -2,7 +2,7 @@
 
 Continuous C++ micro-benchmark tracking for [Apache Arrow](https://github.com/apache/arrow), powered by [**benchx**](https://github.com/benchx-dev/benchx) and [**benchx-ci**](https://github.com/benchx-dev/benchx-ci).
 
-**Live dashboard:** https://mihevc.org/benchx-arrow/
+**Live dashboard:** https://benchx-dev.github.io/benchx-arrow/
 
 ## How it works
 
@@ -23,7 +23,7 @@ This repository holds **only Apache Arrow's configuration and build provider**. 
 ### Manually (workflow dispatch)
 
 ```bash
-gh workflow run bench.yml --repo rok/benchx-arrow \
+gh workflow run bench.yml --repo benchx-dev/benchx-arrow \
   -f sha=main \
   -f machine=amd64-c6a-4xlarge-linux \
   -f suite_filter='arrow-bit-util-benchmark'
