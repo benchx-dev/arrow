@@ -34,6 +34,13 @@ Parameters:
     Description: >-
       The ARN of the account's identity provider for token.actions.githubusercontent.com.
       An account can have only one; leave empty to create it here.
+  GitHubOidcSubPrefix:
+    Type: String
+    Default: ""
+    Description: >-
+      Override the OIDC sub prefix when the repository uses GitHub's immutable
+      OIDC subject (from `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`,
+      e.g. repo:owner@123/name@456). Empty defaults to repo:<GitHubRepository>.
   AmiX8664:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
@@ -45,6 +52,7 @@ Parameters:
 
 Conditions:
   CreateOidcProvider: !Equals [!Ref GitHubOidcProviderArn, ""]
+  HasCustomSubPrefix: !Not [!Equals [!Ref GitHubOidcSubPrefix, ""]]
 
 Resources:
   # ---- the bucket ------------------------------------------------------------
@@ -235,7 +243,10 @@ Resources:
             Condition:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": sts.amazonaws.com
-                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubRepository}:ref:refs/heads/${GitHubBranch}"
+                "token.actions.githubusercontent.com:sub": !If
+                  - HasCustomSubPrefix
+                  - !Sub "${GitHubOidcSubPrefix}:ref:refs/heads/${GitHubBranch}"
+                  - !Sub "repo:${GitHubRepository}:ref:refs/heads/${GitHubBranch}"
       Policies:
         - PolicyName: instances
           PolicyDocument:
