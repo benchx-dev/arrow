@@ -36,5 +36,5 @@ jobs:
       discover_script: provider/discover.sh
       post_run_script: provider/sccache-stats.sh
       # Temporary pin until benchx #131, #137, and #140 are merged and released on PyPI.
-      benchx_spec: "benchx[parquet] @ git+https://github.com/rok/benchx.git@595a446"
+      benchx_spec: "benchx[parquet] @ git+https://github.com/rok/benchx.git@ffadd15"
     secrets: inherit
