@@ -15,5 +15,6 @@ jobs:
   publish:
     uses: benchx-dev/benchx-ci/.github/workflows/publish.yml@main
     with:
-      # Temporary pin until benchx #128, #131, and #137 are merged and released on PyPI.
-      benchx_spec: "benchx[parquet] @ git+https://github.com/rok/benchx.git@6778449"
+      # Temporary pin until benchx #131, #137, and #140 are merged and released on PyPI.
+      benchx_spec: "benchx[parquet] @ git+https://github.com/rok/benchx.git@660f501"
+      views_format: "parquet"
