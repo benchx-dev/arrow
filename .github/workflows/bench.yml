@@ -35,6 +35,6 @@ jobs:
       run_wrapper: provider/run-in-env.sh
       discover_script: provider/discover.sh
       post_run_script: provider/sccache-stats.sh
-      # Temporary pin until benchx #128, #131, and #137 are merged and released on PyPI.
-      benchx_spec: "benchx[parquet] @ git+https://github.com/rok/benchx.git@6778449"
+      # Temporary pin until benchx #131, #137, and #140 are merged and released on PyPI.
+      benchx_spec: "benchx[parquet] @ git+https://github.com/rok/benchx.git@660f501"
     secrets: inherit
